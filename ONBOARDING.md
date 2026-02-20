@@ -6,6 +6,7 @@
 
 ```
 POS Center/
+├── config.bat               # Централизованные настройки (IP, порт, пути)
 ├── auto_update.bat          # Автоматическое обновление прошивки (PsExec/удалённо)
 ├── download.ps1             # Загрузка всех файлов с веб-сервера
 ├── run.bat                  # Интерактивное меню (локальный запуск)
@@ -15,10 +16,10 @@ POS Center/
 ├── setup_env.ps1            # Установка окружения (расширенная, с winget)
 ├── register_drvfr.bat       # Регистрация DrvFR.dll (32/64 бит)
 │
+├── kkt_driver.py            # Общий модуль: COM-драйвер, подключение, утилиты
 ├── kkt_firmware_update.py   # Обновление прошивки ККТ (основной скрипт)
 ├── kkt_info.py              # Диагностика ККТ (версия, ФН, ОФД, сеть)
 ├── kkt_dump_tables.py       # Дамп всех таблиц ККТ в файл
-├── kkt_firmware_manager.py  # Просмотр версии прошивки
 ├── probe_com.py             # Инспекция COM-интерфейса драйвера
 │
 ├── run_dump_remote.bat      # Запуск дампа таблиц на удалённой кассе
@@ -61,6 +62,12 @@ auto_update.bat
 
 ## Описание скриптов
 
+### Общий модуль
+
+| Модуль | Назначение |
+|--------|-----------|
+| `kkt_driver.py` | Создание COM-объекта, подключение TCP/COM, безопасное чтение свойств, чтение таблиц, константы |
+
 ### Основные Python-скрипты
 
 | Скрипт | Назначение | Пример запуска |
@@ -68,16 +75,16 @@ auto_update.bat
 | `kkt_info.py` | Диагностика: модель, серийник, ИНН, версия ПО, ФН, ОФД, сеть, лицензии | `python kkt_info.py --ip 192.168.137.111` |
 | `kkt_dump_tables.py` | Полный дамп всех таблиц настроек ККТ в текстовый файл | `python kkt_dump_tables.py --ip 192.168.137.111 --tables 1,17,19,21` |
 | `kkt_firmware_update.py` | Обновление прошивки: бэкап → проверка смены → выбор прошивки → DFU-прошивка → реконнект | `python kkt_firmware_update.py --ip 192.168.137.111 --file firmware/ --force` |
-| `kkt_firmware_manager.py` | Просмотр текущей версии прошивки | `python kkt_firmware_manager.py --ip 192.168.137.111` |
 | `probe_com.py` | Перечисление всех свойств/методов COM-объекта DrvFR | `python probe_com.py` |
 
 ### Batch/PowerShell скрипты
 
 | Скрипт | Назначение |
-|--------|-----------|
+|--------|-----------| 
+| `config.bat` | Централизованные настройки: IP, порт, путь к прошивкам |
 | `auto_update.bat` | Полный цикл: загрузка файлов → установка Python → pywin32 → регистрация COM → прошивка |
 | `download.ps1` | Загрузка всех скриптов и прошивок с веб-сервера (вызывается из auto_update.bat) |
-| `run.bat` | Интерактивное меню с 6 пунктами (info, firmware, dump, update, probe, setup) |
+| `run.bat` | Интерактивное меню с 5 пунктами (info, dump, update, probe, setup) |
 | `run_update.bat` | Прямой запуск прошивки без меню (использует локальный `python/python.exe`) |
 | `setup.bat` | Установка Portable Python (обёртка для install_python.ps1) |
 | `install_python.ps1` | Скачивание Python 3.11.5 embed, распаковка, настройка pip, установка pywin32 |
@@ -94,7 +101,7 @@ auto_update.bat
 
 - **COM-объект:** `AddIn.DrvFR` (InprocServer, DLL)
 - **Подключение:** TCP Socket (ConnectionType=6), IP `192.168.137.111`, порт `7778` (RNDIS через USB)
-- **Пароли:** Админ=30, Системный админ=29, Оператор=1
+- **Пароли:** Админ=30, Системный админ=30, Оператор=1
 
 ### Процесс обновления прошивки (`kkt_firmware_update.py`)
 

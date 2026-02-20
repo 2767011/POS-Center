@@ -13,8 +13,6 @@ set "FLAG_FILE=%SCRIPT_DIR%\update_success.flag"
 set "PYTHON_DIR=%SCRIPT_DIR%\python"
 set "PYTHON_EXE=%PYTHON_DIR%\python.exe"
 set "FW_DIR=%SCRIPT_DIR%\firmware"
-set "KKT_IP=192.168.137.111"
-set "KKT_PORT=7778"
 
 set "BASE_URL=http://192.168.20.229/KKT/Updater"
 set "FW_URL=http://192.168.20.229/KKT/FW_FR"
@@ -45,6 +43,14 @@ if !ERRORLEVEL! NEQ 0 (
 )
 echo       Downloads complete.
 echo:
+
+:: Load config (downloaded by download.ps1)
+if exist "%SCRIPT_DIR%\config.bat" (
+    call "%SCRIPT_DIR%\config.bat"
+) else (
+    set "KKT_IP=192.168.137.111"
+    set "KKT_PORT=7778"
+)
 
 :: ========================================
 :: 1. Python

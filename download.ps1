@@ -15,12 +15,14 @@ if (-not (Test-Path $FwDir)) { New-Item -ItemType Directory -Path $FwDir -Force 
 # 1. Download scripts
 $scripts = @(
     'install_python.ps1',
+    'kkt_driver.py',
     'kkt_firmware_update.py',
     'kkt_dump_tables.py',
     'kkt_info.py',
-    'kkt_firmware_manager.py',
     'register_drvfr.bat',
     'run_update.bat',
+    'run.bat',
+    'config.bat',
     'setup.bat',
     'probe_com.py'
 )
