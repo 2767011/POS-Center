@@ -177,24 +177,7 @@ if __name__ == "__main__":
 
     gatherer = KKTInfoGatherer()
 
-    if args.com is not None:
-        params = {
-            'ConnectionType': 0,
-            'ComNumber': args.com,
-            'BaudRate': args.baud
-        }
-        print(f"Connecting via COM{args.com} (baud code {args.baud})...")
-    else:
-        params = {
-            'ConnectionType': 6,
-            'IPAddress': args.ip,
-            'TCPPort': args.port,
-            'UseIPAddress': True,
-            'Timeout': args.timeout
-        }
-        print(f"Connecting via TCP {args.ip}:{args.port}...")
-
-    if gatherer.connect(params):
+    if connect_from_args(gatherer.drv, args):
         gatherer.get_device_info()
         gatherer.get_fn_info()
         gatherer.get_ofd_settings()

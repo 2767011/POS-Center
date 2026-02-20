@@ -17,14 +17,17 @@ echo [INFO] Прошивка: %FW_PATH%
 echo [INFO] ККТ: %KKT_IP%:%KKT_PORT%
 echo.
 
-"%PYTHON_PATH%" "%SCRIPT_PATH%" --ip %KKT_IP% --port %KKT_PORT% --file "%FW_PATH%" --force
+"%PYTHON_PATH%" "%SCRIPT_PATH%" --ip %KKT_IP% --port %KKT_PORT% --file "%FW_PATH%" --force --report-json "%~dp0update_report.json"
+set "UPD_RC=%ERRORLEVEL%"
 
-if %ERRORLEVEL% NEQ 0 (
-    echo.
-    echo [ERROR] Обновление завершилось с ошибкой!
-    exit /b 1
-)
+if "%UPD_RC%"=="0" goto :ok
+if "%UPD_RC%"=="10" goto :ok
 
+echo.
+echo [ERROR] Обновление завершилось с ошибкой! Code=%UPD_RC%
+exit /b %UPD_RC%
+
+:ok
 echo.
 echo [SUCCESS] Обновление успешно завершено.
 exit /b 0

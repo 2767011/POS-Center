@@ -2,69 +2,125 @@
 import sys
 import os
 import time
+import json
 import argparse
-import win32com.client
+import logging
 from datetime import datetime
-from kkt_driver import safe_get, DEFAULT_PASSWORD
+
+# Попытка использовать общий модуль драйвера.
+# Если файл kkt_driver.py не скачался на удаленной машине,
+# включаем локальный fallback, чтобы обновление не падало на импорте.
+try:
+    from kkt_driver import safe_get, DEFAULT_PASSWORD, create_driver as driver_create, connect_tcp as driver_connect_tcp
+except Exception:
+    import win32com.client
+
+    DEFAULT_PASSWORD = 30
+
+    def safe_get(drv, attr, default=""):
+        try:
+            val = getattr(drv, attr)
+            return val if val is not None else default
+        except Exception:
+            return default
+
+    def driver_create():
+        try:
+            return win32com.client.Dispatch("AddIn.DrvFR")
+        except Exception as e:
+            print(f"ОШИБКА: Не удалось создать объект драйвера AddIn.DrvFR: {e}")
+            return None
+
+    def driver_connect_tcp(drv, ip, port, password=DEFAULT_PASSWORD):
+        print(f"Подключение к {ip}:{port}...")
+        drv.Password = password
+        drv.UseIPAddress = True
+        drv.IPAddress = ip
+        drv.TCPPort = port
+        drv.ConnectionType = 6
+        drv.Timeout = 3000
+        drv.Connect()
+
+        if safe_get(drv, 'ResultCode', 1) == 0:
+            try:
+                drv.GetDeviceMetrics()
+                drv.GetECRStatus()
+            except Exception:
+                pass
+            print(f"Связь установлена. {safe_get(drv, 'UDescription')} {safe_get(drv, 'SerialNumber')}")
+            return True
+
+        print(f"Ошибка подключения: {safe_get(drv, 'ResultCode')} ({safe_get(drv, 'ResultCodeDescription')})")
+        return False
+
+# === КОДЫ ЗАВЕРШЕНИЯ ===
+EXIT_OK = 0
+EXIT_GENERAL_ERROR = 1
+EXIT_PRECHECK_FAILED = 2
+EXIT_DRY_RUN_OK = 10
+
 
 # === ЛОГИРОВАНИЕ ===
+TERM_ENCODING = 'cp866'
+
+
 def _detect_terminal_encoding():
-    """Определяет кодировку для вывода в консоль/pipe."""
-    if sys.stdout.isatty():
-        return 'utf-8'
-    else:
+    try:
+        if sys.stdout.isatty() and getattr(sys.stdout, 'encoding', None):
+            return sys.stdout.encoding
+    except Exception:
+        pass
+
+    if sys.platform == 'win32':
         try:
             import ctypes
-            oem_cp = ctypes.windll.kernel32.GetOEMCP()
-            return f'cp{oem_cp}'
+            return f"cp{ctypes.windll.kernel32.GetOEMCP()}"
         except Exception:
             return 'cp866'
 
-class DualLogger:
-    """Пишет и в консоль (в OEM/UTF-8), и в файл (всегда UTF-8)"""
-    def __init__(self, filename, encoding='utf-8'):
-        self.terminal = sys.stdout
-        self.terminal_buf = getattr(self.terminal, 'buffer', None)
-        self.filename = filename
-        self.encoding = encoding
-        self.term_encoding = _detect_terminal_encoding()
-        with open(self.filename, 'w', encoding=self.encoding) as f:
-            f.write('')
+    return 'utf-8'
 
-    def write(self, message):
-        try:
-            if self.terminal_buf:
-                self.terminal_buf.write(message.encode(self.term_encoding, errors='replace'))
-                self.terminal_buf.flush()
-            else:
-                self.terminal.write(message)
-                self.terminal.flush()
-        except Exception:
-            pass
 
-        try:
-            with open(self.filename, 'a', encoding=self.encoding) as f:
-                f.write(message)
-        except Exception:
-            pass
+def setup_logging(log_path):
+    """Настройка logging только в файл UTF-8 (консоль пишем вручную для psexec/pipe)."""
+    logger = logging.getLogger()
+    logger.handlers.clear()
+    logger.setLevel(logging.INFO)
 
-    def flush(self):
-        try:
-            if self.terminal_buf:
-                self.terminal_buf.flush()
-            else:
-                self.terminal.flush()
-        except Exception:
-            pass
+    fmt = logging.Formatter('%(message)s')
+    file_handler = logging.FileHandler(log_path, mode='w', encoding='utf-8')
+    file_handler.setFormatter(fmt)
+    logger.addHandler(file_handler)
 
-# Для консоли - переключаем codepage на UTF-8
-if sys.platform == 'win32' and sys.stdout.isatty():
-    os.system('chcp 65001 > nul')
 
-# Настраиваем логирование
 log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'update_kkt.log')
-sys.stdout = DualLogger(log_file)
-sys.stderr = sys.stdout
+setup_logging(log_file)
+TERM_ENCODING = _detect_terminal_encoding()
+
+
+# Совместимость с существующим кодом print(...)
+def print(*args, **kwargs):
+    sep = kwargs.get('sep', ' ')
+    end = kwargs.get('end', '\n')
+    msg = sep.join(str(a) for a in args) + end
+
+    # Консоль/pipe (устойчиво для psexec)
+    try:
+        buf = getattr(sys.stdout, 'buffer', None)
+        if buf is not None:
+            buf.write(msg.encode(TERM_ENCODING, errors='replace'))
+            buf.flush()
+        else:
+            sys.stdout.write(msg)
+            sys.stdout.flush()
+    except Exception:
+        pass
+
+    # Лог-файл
+    try:
+        logging.getLogger().info(msg.rstrip('\n'))
+    except Exception:
+        pass
 
 # Импортируем функционал дампа таблиц
 try:
@@ -78,33 +134,9 @@ except ImportError:
         sys.exit(1)
 
 
-def create_driver():
-    try:
-        drv = win32com.client.Dispatch("AddIn.DrvFR")
-        return drv
-    except Exception as e:
-        print(f"ОШИБКА: Не удалось создать объект драйвера AddIn.DrvFR: {e}")
-        return None
-
-
-def connect_tcp(drv, ip, port, password=DEFAULT_PASSWORD):
-    print(f"Подключение к {ip}:{port}...")
-    drv.Password = password
-    drv.UseIPAddress = True
-    drv.IPAddress = ip
-    drv.TCPPort = port
-    drv.ConnectionType = 6  # TCP Socket
-
-    res = drv.Connect()
-    if res == 0:
-        # Запрашиваем метрики для корректного заполнения свойств
-        drv.GetDeviceMetrics()
-        drv.GetECRStatus()
-        print(f"Связь установлена. {safe_get(drv, 'UDescription')} {safe_get(drv, 'SerialNumber')}")
-        return True
-    else:
-        print(f"Ошибка подключения: {res} ({safe_get(drv, 'ResultCodeDescription')})")
-        return False
+def write_json_report(path, payload):
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2, default=str)
 
 
 def wait_for_completion(drv):
@@ -365,15 +397,30 @@ def main():
     parser.add_argument('--file', default=r"C:\1c\dist\FR\FirmwareUpd", help='Path to firmware file (.bin) OR directory containing firmware')
     parser.add_argument('--skip-backup', action='store_true', help='Skip table backup')
     parser.add_argument('--force', action='store_true', help='Non-interactive mode (answer YES to all)')
+    parser.add_argument('--dry-run', action='store_true', help='Only prechecks and compatibility checks, no firmware update')
+    parser.add_argument('--report-json', default='update_report.json', help='Path to JSON report file')
 
     args = parser.parse_args()
+    report = {
+        'timestamp': datetime.now().isoformat(),
+        'mode': 'dry-run' if args.dry_run else 'update',
+        'ip': args.ip,
+        'port': args.port,
+        'firmware_input': args.file,
+        'success': False,
+        'details': {}
+    }
 
-    drv = create_driver()
+    drv = driver_create()
     if not drv:
-        sys.exit(1)
+        report['details']['error'] = 'driver_create_failed'
+        write_json_report(args.report_json, report)
+        sys.exit(EXIT_GENERAL_ERROR)
 
-    if not connect_tcp(drv, args.ip, args.port):
-        sys.exit(1)
+    if not driver_connect_tcp(drv, args.ip, args.port, password=DEFAULT_PASSWORD):
+        report['details']['error'] = 'connect_failed'
+        write_json_report(args.report_json, report)
+        sys.exit(EXIT_PRECHECK_FAILED)
 
     # Получаем текущую версию
     old_version = get_version_info(drv)
@@ -383,13 +430,23 @@ def main():
     # ПРОВЕРКА И ЗАКРЫТИЕ СМЕНЫ
     if not check_and_close_shift(drv):
         print("Не удалось подготовить ККТ (смена не закрыта). Обновление отменено.")
+        report['details']['error'] = 'shift_prepare_failed'
+        write_json_report(args.report_json, report)
         drv.Disconnect()
-        sys.exit(1)
+        sys.exit(EXIT_PRECHECK_FAILED)
 
     # Проверка ключей
     kkt_variant = check_kkt_variant(drv)
 
+    if kkt_variant is None:
+        print("ОШИБКА: Не удалось определить тип ККТ. Обновление отменено.")
+        report['details']['error'] = 'kkt_variant_undefined'
+        write_json_report(args.report_json, report)
+        drv.Disconnect()
+        sys.exit(EXIT_PRECHECK_FAILED)
+
     variant_str = "БЕЗ КЛЮЧЕЙ (OLD)" if kkt_variant == 0 else "С КЛЮЧАМИ (NEW)"
+    report['details']['kkt_variant'] = variant_str
     print(f"\n==========================================")
     print(f"ОПРЕДЕЛЕН ТИП ККТ: {variant_str}")
     print(f"==========================================\n")
@@ -398,9 +455,21 @@ def main():
     fw_file = select_firmware(kkt_variant, args.file, force=args.force)
     if not fw_file:
         print("Отмена операции.")
-        sys.exit(1)
+        report['details']['error'] = 'firmware_not_selected'
+        write_json_report(args.report_json, report)
+        drv.Disconnect()
+        sys.exit(EXIT_PRECHECK_FAILED)
 
     print(f"Выбран файл прошивки: {fw_file}")
+    report['details']['firmware_selected'] = os.path.abspath(fw_file)
+
+    if args.dry_run:
+        print("\n=== DRY-RUN: проверка завершена, прошивка не выполнялась ===")
+        report['success'] = True
+        report['details']['dry_run_result'] = 'prechecks_passed'
+        write_json_report(args.report_json, report)
+        drv.Disconnect()
+        sys.exit(EXIT_DRY_RUN_OK)
 
     # 1. Бэкап таблиц
     if not args.skip_backup:
@@ -419,11 +488,17 @@ def main():
             print(f"ОШИБКА при создании бэкапа: {e}")
             if args.force:
                 print("Режим --force: Остановка из-за ошибки бэкапа для безопасности.")
-                sys.exit(1)
+                report['details']['error'] = 'backup_failed_force_stop'
+                write_json_report(args.report_json, report)
+                drv.Disconnect()
+                sys.exit(EXIT_PRECHECK_FAILED)
 
             choice = input("Продолжить без бэкапа? (y/n): ")
             if choice.lower() != 'y':
-                sys.exit(1)
+                report['details']['error'] = 'backup_failed_user_cancel'
+                write_json_report(args.report_json, report)
+                drv.Disconnect()
+                sys.exit(EXIT_PRECHECK_FAILED)
     else:
         print("\n=== Бэкап таблиц пропущен ===")
 
@@ -436,7 +511,10 @@ def main():
         confirm = input("Введите 'YES' (большими буквами) для подтверждения: ")
         if confirm != 'YES':
             print("Операция отменена пользователем.")
-            sys.exit(0)
+            report['details']['error'] = 'user_cancelled'
+            write_json_report(args.report_json, report)
+            drv.Disconnect()
+            sys.exit(EXIT_OK)
     else:
         print("Режим --force: Автоматическое подтверждение.")
 
@@ -457,15 +535,28 @@ def main():
 
             if new_version:
                 print(f"СТАЛО: Версия: {new_version['version']}, Сборка: {new_version['build']}, Дата: {new_version['date']}")
+                report['details']['new_version'] = new_version
             else:
                 print("СТАЛО: <не удалось получить данные>")
             print("="*40 + "\n")
 
-        print("Рекомендуется проверить таблицы и настройки.")
+            if old_version:
+                report['details']['old_version'] = old_version
+            print("Рекомендуется проверить таблицы и настройки.")
+            report['success'] = True
+        else:
+            report['details']['error'] = 'reconnect_failed_after_update'
+            write_json_report(args.report_json, report)
+            drv.Disconnect()
+            sys.exit(EXIT_GENERAL_ERROR)
     else:
         print("\nОбновление завершилось неудачей.")
-        sys.exit(1)
+        report['details']['error'] = 'firmware_update_failed'
+        write_json_report(args.report_json, report)
+        drv.Disconnect()
+        sys.exit(EXIT_GENERAL_ERROR)
 
+    write_json_report(args.report_json, report)
     drv.Disconnect()
 
 if __name__ == '__main__':

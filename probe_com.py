@@ -1,10 +1,15 @@
 # -*- coding: utf-8 -*-
 """Probe script - shows all properties and methods of SrvFRLib.SrvFR COM object"""
 import sys
+import argparse
 import win32com.client
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
+
+parser = argparse.ArgumentParser(description="COM probe tool")
+parser.add_argument("--no-pause", action="store_true", help="Do not wait for Enter at the end")
+args = parser.parse_args()
 
 COM_PROG_IDS = ["AddIn.DrvFR", "SrvFRLib.SrvFR"]
 
@@ -105,4 +110,5 @@ except Exception as e:
             print(f"  {m}() = ERROR: {ex}")
 
 print("\nDone.")
-input("Press Enter to exit...")
+if not args.no_pause:
+    input("Press Enter to exit...")

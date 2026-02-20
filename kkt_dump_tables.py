@@ -17,7 +17,7 @@ kkt_dump_tables.py - Считывание всех таблиц ККТ и сох
 import sys
 import argparse
 import datetime
-from kkt_driver import setup_encoding, create_driver, safe_get, add_connection_args
+from kkt_driver import setup_encoding, create_driver, safe_get, add_connection_args, connect_from_args
 
 setup_encoding()
 
@@ -147,22 +147,7 @@ if __name__ == "__main__":
     drv.SysAdminPassword = 30
 
     # Подключение
-    if args.com is not None:
-        drv.ConnectionType = 0
-        drv.ComNumber = args.com
-        drv.BaudRate = args.baud
-        print(f"Подключение COM{args.com}...")
-    else:
-        drv.ConnectionType = 6
-        drv.IPAddress = args.ip
-        drv.TCPPort = args.port
-        drv.UseIPAddress = True
-        drv.Timeout = args.timeout
-        print(f"Подключение TCP {args.ip}:{args.port}...")
-
-    drv.Connect()
-    if drv.ResultCode != 0:
-        print(f"Ошибка подключения: {drv.ResultCode} - {safe_get(drv, 'ResultCodeDescription')}")
+    if not connect_from_args(drv, args):
         sys.exit(1)
     print("Подключено.\n")
 

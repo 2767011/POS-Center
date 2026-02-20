@@ -2,6 +2,14 @@
 setlocal enabledelayedexpansion
 chcp 65001 > nul
 
+:: Проверка прав администратора (нужны для regsvr32)
+net session >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] Administrator privileges required.
+    echo         Re-run this script as Administrator.
+    goto :fail
+)
+
 :: Working directory
 set "SCRIPT_DIR=C:\KKT"
 if defined TEMP set "SCRIPT_DIR=%TEMP%\KKT"
@@ -41,6 +49,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%\download.ps1" 
 if !ERRORLEVEL! NEQ 0 (
     echo       [WARN] Some downloads may have failed
 )
+
+:: Критические файлы должны существовать после загрузки
+set "REQ_MISSING=0"
+for %%f in (kkt_firmware_update.py kkt_driver.py kkt_dump_tables.py config.bat install_python.ps1) do (
+    if not exist "%SCRIPT_DIR%\%%f" (
+        echo [ERROR] Missing required file: %%f
+        set "REQ_MISSING=1"
+    )
+)
+if "!REQ_MISSING!"=="1" (
+    echo [ERROR] Required files are missing after download. Aborting.
+    goto :fail
+)
+
 echo       Downloads complete.
 echo:
 
@@ -115,6 +137,10 @@ if not defined DRV_DLL (
 )
 echo       Found: !DRV_DLL!
 regsvr32 /s "!DRV_DLL!"
+if !ERRORLEVEL! NEQ 0 (
+    echo [ERROR] regsvr32 failed for !DRV_DLL!
+    goto :fail
+)
 
 "%PYTHON_EXE%" -c "import sys,win32com.client;win32com.client.Dispatch('AddIn.DrvFR');sys.exit(0)" 2>nul
 set COM_RESULT=%ERRORLEVEL%
@@ -155,7 +181,7 @@ echo  All checks passed. Starting update...
 echo ========================================
 echo:
 
-"%PYTHON_EXE%" "%SCRIPT_DIR%\kkt_firmware_update.py" --ip %KKT_IP% --port %KKT_PORT% --file "%FW_DIR%" --force
+"%PYTHON_EXE%" "%SCRIPT_DIR%\kkt_firmware_update.py" --ip %KKT_IP% --port %KKT_PORT% --file "%FW_DIR%" --force --report-json "%SCRIPT_DIR%\update_report.json"
 
 if %ERRORLEVEL% NEQ 0 goto :update_fail
 
