@@ -99,6 +99,58 @@ python kkt_firmware_update.py --ip 192.168.137.111 --port 7778 --file firmware -
 install_dfu_driver.bat VCOM+DFU
 ```
 
+## Структура веб-сервера
+
+Веб-сервер используется как файловый источник для удалённого автообновления. Публичный корень Apache настроен на каталог с файлами, а `download.ps1` забирает updater-скрипты из раздела `KKT/Updater` и прошивки из `KKT/FW_FR`.
+
+Ожидаемая структура публичного каталога:
+
+```text
+/var/www/files/
+├── KKT/
+│   ├── Updater/
+│   │   ├── auto_update.bat
+│   │   ├── download.ps1
+│   │   ├── install_python.ps1
+│   │   ├── install_dfu_driver.bat
+│   │   ├── register_drvfr.bat
+│   │   ├── setup.bat
+│   │   ├── run.bat
+│   │   ├── run_update.bat
+│   │   ├── config.bat
+│   │   ├── kkt_driver.py
+│   │   ├── kkt_firmware_update.py
+│   │   ├── kkt_dump_tables.py
+│   │   ├── kkt_info.py
+│   │   ├── probe_com.py
+│   │   └── VCOM+DFU.zip
+│   └── FW_FR/
+│       ├── *.bin
+│       └── table_after_update.csv
+├── admin.php
+├── .admin_password
+├── .settings.json
+├── .lang/
+└── .trash/
+```
+
+Назначение разделов:
+
+- `KKT/Updater/` — скрипты автообновления, общие Python-модули, BAT/PowerShell-обёртки и архив USB VCOM/DFU-драйверов.
+- `KKT/FW_FR/` — прошивки ККТ (`*.bin`) и дополнительная таблица пост-настроек `table_after_update.csv`.
+- `admin.php` — файловый менеджер веб-раздела; доступ к нему должен быть закрыт паролем.
+- `.admin_password`, `.settings.json`, `.lang/`, `.trash/` — служебные файлы файлового менеджера; они не должны отдаваться как публичные файлы.
+
+Минимальная идея Apache vhost:
+
+```apache
+DocumentRoot /var/www/files
+Alias /admin /var/www/files/admin.php
+IndexIgnore .admin_password admin.php .lang .trash .settings.json
+```
+
+В публичной документации не фиксируйте реальные IP-адреса, пароли, хэши и административные URL. Для рабочих значений используйте локальные операционные заметки или переменные в скриптах.
+
 ## Требования
 
 - Windows с правами администратора.
@@ -143,4 +195,3 @@ python probe_com.py
 - `update_report.json` — машинно-читаемый итог.
 - `dfu_driver_install.log` — установка USB VCOM/DFU-драйверов.
 - `tables_backup_<serial>_<timestamp>.csv` — бэкап таблиц перед прошивкой.
-
