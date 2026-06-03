@@ -7,6 +7,7 @@
 - POS Center — набор Windows-утилит для управления и обновления прошивки ККТ POS Center / Штрих-М через COM-драйвер `AddIn.DrvFR`.
 - Основные точки входа: `run.bat` (интерактивное меню), `auto_update.bat` (удалённый автоцикл), `kkt_firmware_update.py` (прошивка), `kkt_info.py` (диагностика), `kkt_dump_tables.py` (дамп таблиц), `probe_com.py` (инспекция COM).
 - Общий Python-модуль: `kkt_driver.py`; профильная справка для агента: `AgentSkill_KKT.md`; пользовательская карта проекта: `ONBOARDING.md`.
+- Корневой `README.md` создан как безопасная обзорная документация без внутренних серверных адресов, паролей и административных URL.
 
 ## Инфраструктура
 
@@ -35,3 +36,4 @@
 - Бэклог: [backlog.md](backlog.md)
 - Архив: [archive.md](archive.md)
 - Тема: [topics/kkt-toolkit.md](topics/kkt-toolkit.md)
+- Документация: [../../README.md](../../README.md)
