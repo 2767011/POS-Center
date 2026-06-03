@@ -19,8 +19,6 @@ import argparse
 import datetime
 from kkt_driver import setup_encoding, create_driver, safe_get, add_connection_args, connect_from_args
 
-setup_encoding()
-
 
 def dump_tables(drv, output_file, table_filter=None):
     """Считать все (или указанные) таблицы ККТ и записать в файл."""
@@ -129,6 +127,7 @@ def dump_tables(drv, output_file, table_filter=None):
 
 
 if __name__ == "__main__":
+    setup_encoding()
     parser = argparse.ArgumentParser(description="KKT Table Dump - считывание всех таблиц ККТ")
     add_connection_args(parser)
     parser.add_argument("--output", "-o", default=None,

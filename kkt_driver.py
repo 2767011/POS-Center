@@ -166,18 +166,21 @@ def read_table_field(drv, table, row, field):
     drv.TableNumber = table
     drv.RowNumber = row
     drv.FieldNumber = field
+
+    # Сначала определяем тип поля
+    try:
+        drv.GetFieldStruct()
+    except Exception:
+        pass
+
     if drv.ReadTable() == 0:
-        # Определяем тип поля через GetFieldStruct
-        drv.TableNumber = table
-        drv.FieldNumber = field
         try:
-            drv.GetFieldStruct()
             if drv.FieldType:  # True = String
                 return drv.ValueOfFieldString
             else:
                 return drv.ValueOfFieldInteger
         except Exception:
-            # Если GetFieldStruct не сработал, пробуем оба варианта
+            # Если тип не определился, пробуем оба варианта
             val_str = safe_get(drv, 'ValueOfFieldString', '')
             val_int = safe_get(drv, 'ValueOfFieldInteger', 0)
             return val_str if val_str else val_int

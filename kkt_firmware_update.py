@@ -122,6 +122,11 @@ def print(*args, **kwargs):
     except Exception:
         pass
 
+# Подменяем builtins.print чтобы все модули (kkt_dump_tables и др.)
+# тоже использовали правильную кодировку для PsExec/pipe
+import builtins
+builtins.print = print
+
 # Импортируем функционал дампа таблиц
 try:
     import kkt_dump_tables
@@ -141,17 +146,27 @@ def write_json_report(path, payload):
 
 def wait_for_completion(drv):
     """Ожидание завершения обновления прошивки"""
+    MAX_WAIT = 600  # 10 минут максимум
     print("\n--- НАЧАЛО ПРОЦЕССА ПРОШИВКИ ---")
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Ожидание завершения процесса обновления...")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Ожидание завершения процесса обновления (таймаут {MAX_WAIT}с)...")
 
     last_msg = ""
     start_time = time.time()
 
     while True:
-        status = drv.UpdateFirmwareStatus
-        msg = drv.UpdateFirmwareStatusMessage
+        try:
+            status = drv.UpdateFirmwareStatus
+            msg = drv.UpdateFirmwareStatusMessage
+        except Exception as e:
+            print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Потеря связи с ККТ во время прошивки: {e}")
+            return False
 
         elapsed = int(time.time() - start_time)
+
+        if elapsed > MAX_WAIT:
+            print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Таймаут {MAX_WAIT}с превышен. Прерывание.")
+            return False
+
         if msg != last_msg:
             print(f"[{datetime.now().strftime('%H:%M:%S')}] [{elapsed}с] Статус: {msg} (Код: {status})")
             last_msg = msg
@@ -186,10 +201,10 @@ def update_firmware(drv, firmware_path):
     drv.UpdateFirmwareMethod = METHOD_DFU
     drv.FileName = abs_path
 
-    res = drv.UpdateFirmware()
+    drv.UpdateFirmware()
 
-    if res != 0:
-        print(f"Не удалось запустить обновление: {res} ({safe_get(drv, 'ResultCodeDescription')})")
+    if safe_get(drv, 'ResultCode', -1) != 0:
+        print(f"Не удалось запустить обновление: {safe_get(drv, 'ResultCode')} ({safe_get(drv, 'ResultCodeDescription')})")
         return False
 
     print("Процесс обновления запущен.")
@@ -294,6 +309,32 @@ def read_table_field(drv, table, row, field, password=DEFAULT_PASSWORD):
         return drv.ValueOfFieldInteger
 
 
+def write_table_field(drv, table, row, field, value, password=DEFAULT_PASSWORD):
+    """Записывает значение в поле таблицы ККТ."""
+    drv.Password = password
+    drv.TableNumber = table
+    drv.RowNumber = row
+    drv.FieldNumber = field
+
+    res = drv.GetFieldStruct()
+    if res != 0:
+        print(f"Ошибка чтения структуры поля Т{table}П{field}: {safe_get(drv, 'ResultCodeDescription')}")
+        return False
+
+    if drv.FieldType:  # String
+        drv.ValueOfFieldString = str(value)
+    else:  # Integer
+        drv.ValueOfFieldInteger = int(value)
+
+    res = drv.WriteTable()
+    if res != 0:
+        print(f"Ошибка записи Т{table}С{row}П{field}={value}: {safe_get(drv, 'ResultCodeDescription')}")
+        return False
+
+    print(f"Записано: Т{table}С{row}П{field} = {value}")
+    return True
+
+
 def check_kkt_variant(drv):
     """
     Проверяет тип ККТ (с ключами или без) по таблице 23 поле 11.
@@ -375,19 +416,40 @@ def reconnect_after_update(drv, ip, port, max_attempts=30):
     """Ожидание перезагрузки ККТ и переподключение"""
     print("\nОжидание перезагрузки ККТ (это может занять 1-2 минуты)...")
     drv.Disconnect()
+    time.sleep(10)  # Дать кассе время начать перезагрузку
 
     for i in range(max_attempts):
-        time.sleep(2)
-        print(f"Попытка подключения {i+1}/{max_attempts}...", end="\r")
-        drv.IPAddress = ip
-        drv.TCPPort = port
-        drv.Timeout = 1000
-        if drv.Connect() == 0:
-            print(f"\nУспешное подключение!")
-            return True
+        time.sleep(5)
+        print(f"Попытка подключения {i+1}/{max_attempts}...")
+        try:
+            drv.Password = DEFAULT_PASSWORD
+            drv.ConnectionType = 6  # TCP Socket
+            drv.UseIPAddress = True
+            drv.IPAddress = ip
+            drv.TCPPort = port
+            drv.Timeout = 5000
+            drv.Connect()
+            if safe_get(drv, 'ResultCode', -1) == 0:
+                print(f"Успешное подключение!")
+                return True
+        except Exception as e:
+            print(f"  Ошибка: {e}")
 
     print("\nНе удалось подключиться к ККТ после обновления.")
     return False
+
+
+def apply_post_update_settings(drv, firmware_file):
+    """Настройки, которые нужно применить после конкретных прошивок."""
+    fw_name = os.path.basename(firmware_file).lower()
+
+    if "120526" in fw_name:
+        print("\n=== Пост-настройка для прошивки 120526 ===")
+        print("Установка Т17С1П74 = 1 (использовать шрифт снизу qr code)...")
+        if write_table_field(drv, 17, 1, 74, 1):
+            print("Пост-настройка выполнена успешно.")
+        else:
+            print("ВНИМАНИЕ: Не удалось применить пост-настройку!")
 
 
 def main():
@@ -542,6 +604,10 @@ def main():
 
             if old_version:
                 report['details']['old_version'] = old_version
+
+            # Применяем пост-настройки для конкретных прошивок
+            apply_post_update_settings(drv, fw_file)
+
             print("Рекомендуется проверить таблицы и настройки.")
             report['success'] = True
         else:

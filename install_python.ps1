@@ -1,29 +1,225 @@
-# Скрипт для автоматической установки Portable Python и зависимостей
+# install_python.ps1 - Установка Portable Python из готового пакета с локального сервера
+# Пакет python_ready.zip готовится скриптом build_python_package.ps1 и содержит
+# Python + pip + pywin32 в одном архиве. Это исключает скачивание из интернета
+# и зависание pip при запуске через PsExec.
+
 $ErrorActionPreference = "Stop"
 
-$pyVersion = "3.11.5"
-$pyUrl = "https://www.python.org/ftp/python/$pyVersion/python-$pyVersion-embed-amd64.zip"
-$zipPath = "python.zip"
 $extractPath = "python"
 
+function Get-WindowsVersionCompat {
+    try {
+        $os = Get-WmiObject -Class Win32_OperatingSystem -ErrorAction Stop
+        return [version]$os.Version
+    } catch {
+        return [Environment]::OSVersion.Version
+    }
+}
+
+$windowsVersion = Get-WindowsVersionCompat
+$isWindows7 = ($windowsVersion.Major -eq 6 -and $windowsVersion.Minor -eq 1)
+$baseUrl = "http://192.168.20.229/KKT/Updater"
+
+if ($isWindows7) {
+    # Python 3.8 is the last Python line suitable for Windows 7.
+    $readyPackage = "python_ready_win7.zip"
+    $pyVersion = "3.8.10"
+    $pywin32Package = "pywin32==306"
+    $getPipUrl = "https://bootstrap.pypa.io/pip/3.8/get-pip.py"
+} else {
+    $readyPackage = "python_ready.zip"
+    $pyVersion = "3.11.5"
+    $pywin32Package = "pywin32"
+    $getPipUrl = "https://bootstrap.pypa.io/get-pip.py"
+}
+
+# URL готового пакета на локальном сервере
+# Пакет собирается скриптом build_python_package.ps1
+$readyUrl = "$baseUrl/$readyPackage"
+$zipPath = $readyPackage
+
+# Fallback: скачать embed-дистрибутив и поставить pip/pywin32 вручную
+$pyUrl = "https://www.python.org/ftp/python/$pyVersion/python-$pyVersion-embed-amd64.zip"
+$pyVersionParts = $pyVersion.Split(".")
+$pyMajor = [int]$pyVersionParts[0]
+$pyMinor = [int]$pyVersionParts[1]
+$pythonReadyCheck = "import sys, win32com.client; raise SystemExit(0 if sys.version_info[:2] == ($pyMajor, $pyMinor) else 2)"
+
+function Enable-Tls12Compat {
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    } catch {
+        Write-Host "  [WARN] TLS 1.2 is not available in this PowerShell/.NET runtime."
+    }
+}
+
+function Download-FileCompat {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Uri,
+
+        [Parameter(Mandatory = $true)]
+        [string]$OutFile,
+
+        [int]$TimeoutSec = 0
+    )
+
+    $invokeWebRequest = Get-Command Invoke-WebRequest -ErrorAction SilentlyContinue
+    if ($invokeWebRequest) {
+        if ($TimeoutSec -gt 0) {
+            Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing -TimeoutSec $TimeoutSec
+        } else {
+            Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing
+        }
+        return
+    }
+
+    $client = New-Object System.Net.WebClient
+    try {
+        $client.DownloadFile($Uri, $OutFile)
+    } finally {
+        $client.Dispose()
+    }
+}
+
+function Expand-ZipCompat {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationPath
+    )
+
+    $zipFullPath = (Resolve-Path $Path).Path
+    $destinationFullPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($DestinationPath)
+
+    if (Test-Path $destinationFullPath) {
+        Remove-Item $destinationFullPath -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    New-Item -ItemType Directory -Path $destinationFullPath -Force | Out-Null
+
+    $expandArchive = Get-Command Expand-Archive -ErrorAction SilentlyContinue
+    if ($expandArchive) {
+        Expand-Archive -Path $zipFullPath -DestinationPath $destinationFullPath -Force
+        return
+    }
+
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($zipFullPath, $destinationFullPath)
+        return
+    } catch {
+        Write-Host "  [WARN] .NET ZipFile extraction unavailable: $($_.Exception.Message)"
+    }
+
+    $shell = New-Object -ComObject Shell.Application
+    $zip = $shell.NameSpace($zipFullPath)
+    $destination = $shell.NameSpace($destinationFullPath)
+    if (-not $zip -or -not $destination) {
+        throw "Cannot open ZIP archive or destination folder"
+    }
+
+    $destination.CopyHere($zip.Items(), 0x14)
+
+    $lastSize = -1
+    $stableCount = 0
+    $deadline = (Get-Date).AddMinutes(5)
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds 1
+        $items = Get-ChildItem -Path $destinationFullPath -Recurse -Force -ErrorAction SilentlyContinue
+        if ($items) {
+            $currentSize = ($items | Where-Object { -not $_.PSIsContainer } | Measure-Object -Property Length -Sum).Sum
+            if ($currentSize -eq $lastSize) {
+                $stableCount++
+            } else {
+                $stableCount = 0
+                $lastSize = $currentSize
+            }
+
+            if ($stableCount -ge 2) {
+                Start-Sleep -Seconds 1
+                Write-Host "  Extracted via Windows Shell ZIP support."
+                return
+            }
+        }
+    }
+
+    throw "ZIP extraction timed out"
+}
+
 Write-Host "--- Portable Python Installer ---"
+Write-Host "Windows version: $windowsVersion"
+if ($isWindows7) {
+    Write-Host "Windows 7 detected, using $readyPackage with Python $pyVersion."
+}
 
 # 1. Проверка наличия
 if (Test-Path "$extractPath\python.exe") {
-    Write-Host "Python already installed in $extractPath."
-} else {
-    # 2. Скачивание
-    Write-Host "Downloading Python $pyVersion..."
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -Uri $pyUrl -OutFile $zipPath
-
-    # 3. Распаковка
-    Write-Host "Extracting..."
-    Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
-    Remove-Item $zipPath
+    # Проверяем что версия Python подходит для ОС и pywin32 тоже на месте.
+    $testResult = & ".\$extractPath\python.exe" -c $pythonReadyCheck 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "Python already installed and ready in $extractPath."
+        exit 0
+    }
+    Write-Host "Python found but version/dependencies are not suitable, reinstalling..."
+    Remove-Item $extractPath -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# 4. Настройка ._pth для поддержки pip (раскомментировать import site)
+# 2. Попытка скачать готовый пакет с локального сервера
+Write-Host "Downloading pre-built Python package from $readyUrl..."
+$downloaded = $false
+try {
+    Download-FileCompat -Uri $readyUrl -OutFile $zipPath -TimeoutSec 30
+    if (Test-Path $zipPath) {
+        $fileSize = (Get-Item $zipPath).Length
+        if ($fileSize -gt 1048576) {  # > 1MB - валидный архив
+            $downloaded = $true
+            Write-Host "  OK: $([math]::Round($fileSize/1MB, 1)) MB"
+        } else {
+            Write-Host "  Downloaded file too small ($fileSize bytes), trying fallback..."
+            Remove-Item $zipPath -Force
+        }
+    }
+} catch {
+    Write-Host "  [WARN] Cannot download from local server: $($_.Exception.Message)"
+    Write-Host "  Falling back to internet install..."
+}
+
+if ($downloaded) {
+    # 3a. Распаковка готового пакета
+    Write-Host "Extracting pre-built package..."
+    Expand-ZipCompat -Path $zipPath -DestinationPath $extractPath
+    Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+
+    # Проверка
+    if (Test-Path "$extractPath\python.exe") {
+        $testResult = & ".\$extractPath\python.exe" -c $pythonReadyCheck 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "Done! Python with pywin32 is ready in ./$extractPath"
+            exit 0
+        }
+        Write-Host "[WARN] Python version/dependency check failed after extraction, continuing with pip install..."
+    } else {
+        Write-Host "[WARN] python.exe not found after extraction"
+        Remove-Item $extractPath -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# 3b. Fallback: ручная установка (только если готовый пакет недоступен)
+Write-Host "=== Fallback: manual install from internet ==="
+
+if (-not (Test-Path "$extractPath\python.exe")) {
+    Write-Host "Downloading Python $pyVersion..."
+    Enable-Tls12Compat
+    $embedZip = "python_embed.zip"
+    Download-FileCompat -Uri $pyUrl -OutFile $embedZip
+    Write-Host "Extracting..."
+    Expand-ZipCompat -Path $embedZip -DestinationPath $extractPath
+    Remove-Item $embedZip -Force -ErrorAction SilentlyContinue
+}
+
+# Настройка ._pth для поддержки pip
 $pthFile = Get-ChildItem "$extractPath\*._pth" | Select-Object -First 1
 if ($pthFile) {
     Write-Host "Patching $($pthFile.Name) for pip support..."
@@ -32,18 +228,19 @@ if ($pthFile) {
     Set-Content $pthFile.FullName $newContent
 }
 
-# 5. Установка pip
+# Установка pip
 if (-not (Test-Path "$extractPath\Scripts\pip.exe")) {
     Write-Host "Downloading get-pip.py..."
-    Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile "get-pip.py"
-    
+    Enable-Tls12Compat
+    Download-FileCompat -Uri $getPipUrl -OutFile "get-pip.py"
+
     Write-Host "Installing pip..."
     & ".\$extractPath\python.exe" get-pip.py --no-warn-script-location
-    Remove-Item "get-pip.py"
+    Remove-Item "get-pip.py" -Force -ErrorAction SilentlyContinue
 }
 
-# 6. Установка зависимостей (pywin32)
-Write-Host "Installing pywin32..."
-& ".\$extractPath\python.exe" -m pip install pywin32 --no-warn-script-location
+# Установка pywin32
+Write-Host "Installing $pywin32Package..."
+& ".\$extractPath\python.exe" -m pip install $pywin32Package --no-warn-script-location
 
 Write-Host "Done! Python is ready in ./$extractPath"
