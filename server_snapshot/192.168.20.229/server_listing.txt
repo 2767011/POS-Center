@@ -1,0 +1,49 @@
+pee-bo-sr-web1
+2026-05-15T15:27:56+05:00
+VirtualHost configuration:
+*:80                   pee-bo-sr-web1.lion.local (/etc/apache2/sites-enabled/files.conf:1)
+ServerRoot: "/etc/apache2"
+Main DocumentRoot: "/var/www/html"
+Main ErrorLog: "/var/log/apache2/error.log"
+Mutex watchdog-callback: using_defaults
+Mutex default: dir="/var/run/apache2/" mechanism=default 
+Mutex mpm-accept: using_defaults
+PidFile: "/var/run/apache2/apache2.pid"
+Define: DUMP_VHOSTS
+Define: DUMP_RUN_CFG
+User: name="www-data" id=33
+Group: name="www-data" id=33
+
+--- /var/www/files ---
+drwxr-xr-x www-data www-data 17 2026-02-20 14:56 /var/www/files/KKT/Updater
+drwxr-xr-x www-data www-data 2 2026-03-23 03:00 /var/www/files/.trash/.meta
+drwxr-xr-x www-data www-data 3 2026-02-19 17:13 /var/www/files/KKT/FW_FR/lpcopen_v1.20
+drwxr-xr-x www-data www-data 4 2026-02-19 19:17 /var/www/files/.lang
+drwxr-xr-x www-data www-data 4 2026-02-20 14:55 /var/www/files/KKT
+drwxr-xr-x www-data www-data 4 2026-03-23 03:00 /var/www/files/.trash
+drwxr-xr-x www-data www-data 7 2026-02-19 17:13 /var/www/files/KKT/FW_FR
+drwxr-xr-x www-data www-data 7 2026-02-19 20:22 /var/www/files
+-rw-r--r-- www-data www-data 151 2026-02-20 14:56 /var/www/files/KKT/Updater/setup.bat
+-rw-r--r-- www-data www-data 1933 2026-02-20 14:56 /var/www/files/KKT/Updater/install_python.ps1
+-rw-r--r-- www-data www-data 214 2026-02-20 14:56 /var/www/files/KKT/Updater/run_dump_remote.bat
+-rw-r--r-- www-data www-data 22990 2026-02-20 14:56 /var/www/files/KKT/Updater/kkt_firmware_update.py
+-rw-r--r-- www-data www-data 2382 2026-02-20 14:56 /var/www/files/KKT/Updater/download.ps1
+-rw-r--r-- www-data www-data 3296 2026-02-20 14:56 /var/www/files/KKT/Updater/run.bat
+-rw-r--r-- www-data www-data 3608 2026-02-20 14:56 /var/www/files/KKT/Updater/probe_com.py
+-rw-r--r-- www-data www-data 3699 2026-02-19 21:12 /var/www/files/.lang/en.php
+-rw-r--r-- www-data www-data 457 2026-02-20 14:56 /var/www/files/KKT/Updater/config.bat
+-rw-r--r-- www-data www-data 4920 2026-02-19 21:12 /var/www/files/.lang/ru.php
+-rw-r--r-- www-data www-data 4946 2026-02-20 14:56 /var/www/files/KKT/Updater/register_drvfr.bat
+-rw-r--r-- www-data www-data 5793 2026-02-20 14:56 /var/www/files/KKT/Updater/setup_env.ps1
+-rw-r--r-- www-data www-data 6057 2026-02-20 14:56 /var/www/files/KKT/Updater/auto_update.bat
+-rw-r--r-- www-data www-data 6322 2026-02-20 14:56 /var/www/files/KKT/Updater/kkt_dump_tables.py
+-rw-r--r-- www-data www-data 8183 2026-02-20 14:56 /var/www/files/KKT/Updater/kkt_driver.py
+-rw-r--r-- www-data www-data 8626 2026-02-20 14:56 /var/www/files/KKT/Updater/kkt_info.py
+-rw-r--r-- www-data www-data 970 2026-02-20 14:56 /var/www/files/KKT/Updater/run_update.bat
+-rw------- www-data www-data 60 2026-02-19 19:19 /var/www/files/.admin_password
+-rwxr-xr-x www-data www-data 162564 2026-02-19 17:13 /var/www/files/KKT/FW_FR/Лион 589 шт_18.08.25 ЕП_589.slf
+-rwxr-xr-x www-data www-data 2417 2026-02-19 21:12 /var/www/files/.trash/cleanup.php
+-rwxr-xr-x www-data www-data 330 2026-02-19 17:13 /var/www/files/KKT/FW_FR/table_after_update.csv
+-rwxr-xr-x www-data www-data 491520 2026-02-19 17:13 /var/www/files/KKT/FW_FR/upd_app_for_old_frs_POSCENTER_190126_12.bin
+-rwxr-xr-x www-data www-data 491520 2026-02-19 17:13 /var/www/files/KKT/FW_FR/upd_app_POSCENTER_190126_12.bin
+-rwxr-xr-x www-data www-data 56782 2026-02-19 21:12 /var/www/files/admin.php
