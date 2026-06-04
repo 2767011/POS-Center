@@ -2,6 +2,39 @@
 setlocal enabledelayedexpansion
 chcp 65001 > nul
 
+set "START_DIR=%~dp0"
+
+:: Optional source selector:
+::   auto_update.bat --source http://host/KKT
+::   auto_update.bat --source C:\Offline\KKT
+::   auto_update.bat --source \\server\share\KKT
+:: Environment alternative: set KKT_SOURCE=...
+:parse_args
+if "%~1"=="" goto :args_done
+if /I "%~1"=="--source" (
+    if "%~2"=="" (
+        echo [ERROR] Missing value after --source.
+        exit /b 1
+    )
+    set "KKT_SOURCE=%~2"
+    shift
+    shift
+    goto :parse_args
+)
+set "ARG=%~1"
+if /I "!ARG:~0,9!"=="--source=" (
+    set "KKT_SOURCE=!ARG:~9!"
+    shift
+    goto :parse_args
+)
+echo [WARN] Unknown argument ignored: %~1
+shift
+goto :parse_args
+
+:args_done
+if not defined KKT_SOURCE if defined BASE_URL set "KKT_SOURCE=%BASE_URL%"
+if not defined KKT_SOURCE set "KKT_SOURCE=%START_DIR%"
+
 :: Проверка прав администратора (нужны для regsvr32)
 net session >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
@@ -16,6 +49,7 @@ if defined TEMP set "SCRIPT_DIR=%TEMP%\KKT"
 if not exist "%SCRIPT_DIR%" mkdir "%SCRIPT_DIR%"
 cd /d "%SCRIPT_DIR%"
 echo       Working dir: %SCRIPT_DIR%
+echo       Source: %KKT_SOURCE%
 
 set "FLAG_FILE=%SCRIPT_DIR%\update_success.flag"
 set "PYTHON_DIR=%SCRIPT_DIR%\python"
@@ -24,9 +58,7 @@ set "FW_DIR=%SCRIPT_DIR%\firmware"
 set "VCOM_DFU_DIR=%SCRIPT_DIR%\VCOM+DFU"
 set "DFU_DRIVER_LOG=%SCRIPT_DIR%\dfu_driver_install.log"
 set "DFU_DRIVER_WARN=0"
-
-set "BASE_URL=http://192.168.20.229/KKT/Updater"
-set "FW_URL=http://192.168.20.229/KKT/FW_FR"
+set "PREPARE_SCRIPT=%SCRIPT_DIR%\prepare_update.ps1"
 
 echo ========================================
 echo  KKT Auto Update
@@ -34,28 +66,49 @@ echo ========================================
 echo:
 
 :: ========================================
-:: 0. Download all files from server
+:: 0. Prepare all files from selected source
 :: ========================================
-echo [0/5] Downloading files from server...
+echo [0/5] Preparing files...
 
-:: Step 0a: Download the download script itself
-echo       Fetching download.ps1...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$wc=New-Object System.Net.WebClient; try { $wc.DownloadFile('%BASE_URL%/download.ps1', '%SCRIPT_DIR%\download.ps1') } finally { $wc.Dispose() }"
-if not exist "%SCRIPT_DIR%\download.ps1" (
-    echo [ERROR] Cannot download download.ps1 from %BASE_URL%
-    echo         Check network connectivity to 192.168.20.229
+if exist "%START_DIR%prepare_update.ps1" (
+    copy /Y "%START_DIR%prepare_update.ps1" "%PREPARE_SCRIPT%" >nul
+)
+
+if not exist "%PREPARE_SCRIPT%" if exist "%START_DIR%Updater\prepare_update.ps1" (
+    copy /Y "%START_DIR%Updater\prepare_update.ps1" "%PREPARE_SCRIPT%" >nul
+)
+
+if not exist "%PREPARE_SCRIPT%" if exist "%KKT_SOURCE%\prepare_update.ps1" (
+    copy /Y "%KKT_SOURCE%\prepare_update.ps1" "%PREPARE_SCRIPT%" >nul
+)
+
+if not exist "%PREPARE_SCRIPT%" if exist "%KKT_SOURCE%\Updater\prepare_update.ps1" (
+    copy /Y "%KKT_SOURCE%\Updater\prepare_update.ps1" "%PREPARE_SCRIPT%" >nul
+)
+
+if not exist "%PREPARE_SCRIPT%" (
+    echo %KKT_SOURCE% | findstr /I /R "^http:// ^https://" >nul
+    if !ERRORLEVEL! EQU 0 (
+        echo       Fetching prepare_update.ps1 from HTTP source...
+        powershell -NoProfile -ExecutionPolicy Bypass -Command "$src='%KKT_SOURCE%'.TrimEnd('/'); $dest='%PREPARE_SCRIPT%'; $urls=@($src + '/prepare_update.ps1', $src + '/Updater/prepare_update.ps1'); $wc=New-Object System.Net.WebClient; try { foreach ($u in $urls) { try { $wc.DownloadFile($u, $dest); if (Test-Path $dest) { exit 0 } } catch {} }; exit 1 } finally { $wc.Dispose() }"
+    )
+)
+
+if not exist "%PREPARE_SCRIPT%" (
+    echo [ERROR] prepare_update.ps1 not found.
+    echo         Provide --source pointing to HTTP root, Updater folder, SMB path, or offline package.
     goto :fail
 )
 
-:: Step 0b: Run the download script with parameters
-powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%\download.ps1" -Dir "%SCRIPT_DIR%" -FwDir "%FW_DIR%" -DfuDir "%VCOM_DFU_DIR%" -BaseUrl "%BASE_URL%" -FwUrl "%FW_URL%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PREPARE_SCRIPT%" -Source "%KKT_SOURCE%" -BaseUrl "%BASE_URL%" -FwUrl "%FW_URL%" -Dir "%SCRIPT_DIR%" -FwDir "%FW_DIR%" -DfuDir "%VCOM_DFU_DIR%"
 if !ERRORLEVEL! NEQ 0 (
-    echo       [WARN] Some downloads may have failed
+    echo [ERROR] File preparation failed.
+    goto :fail
 )
 
-:: Критические файлы должны существовать после загрузки
+:: Критические файлы должны существовать после подготовки
 set "REQ_MISSING=0"
-for %%f in (kkt_firmware_update.py kkt_driver.py kkt_dump_tables.py config.bat install_python.ps1 install_dfu_driver.bat) do (
+for %%f in (prepare_update.ps1 kkt_firmware_update.py kkt_driver.py kkt_dump_tables.py config.bat install_python.ps1 install_dfu_driver.bat) do (
     if not exist "%SCRIPT_DIR%\%%f" (
         echo [ERROR] Missing required file: %%f
         set "REQ_MISSING=1"
@@ -70,14 +123,14 @@ if not exist "%VCOM_DFU_DIR%\Windows\INF\vcom\lpc-ucom-vcom.inf" (
     set "REQ_MISSING=1"
 )
 if "!REQ_MISSING!"=="1" (
-    echo [ERROR] Required files are missing after download. Aborting.
+    echo [ERROR] Required files are missing after preparation. Aborting.
     goto :fail
 )
 
-echo       Downloads complete.
+echo       Preparation complete.
 echo:
 
-:: Load config (downloaded by download.ps1)
+:: Load config (prepared by prepare_update.ps1)
 if exist "%SCRIPT_DIR%\config.bat" (
     call "%SCRIPT_DIR%\config.bat"
 ) else (
@@ -94,7 +147,7 @@ if not exist "%SCRIPT_DIR%\install_python.ps1" (
     goto :fail
 )
 echo       Checking/installing portable Python...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%\install_python.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%\install_python.ps1" -PackageSource "%SCRIPT_DIR%"
 if not exist "%PYTHON_EXE%" (
     echo [ERROR] Python install failed!
     goto :fail

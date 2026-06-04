@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "layout": {
+    "updater": "Updater",
+    "firmware": "FW_FR"
+  },
+  "required_scripts": [
+    "prepare_update.ps1",
+    "install_python.ps1",
+    "kkt_driver.py",
+    "kkt_firmware_update.py",
+    "kkt_dump_tables.py",
+    "config.bat",
+    "install_dfu_driver.bat"
+  ],
+  "optional_scripts": [
+    "download.ps1",
+    "build_python_package.ps1",
+    "kkt_info.py",
+    "register_drvfr.bat",
+    "run_update.bat",
+    "run.bat",
+    "setup.bat",
+    "probe_com.py",
+    "auto_update.bat"
+  ],
+  "python_packages": [
+    "python_ready.zip",
+    "python_ready_win7.zip"
+  ],
+  "driver_package": "VCOM+DFU.zip",
+  "required_driver_files": [
+    "Windows\\INF\\dfu\\lpc-composite89-dfu.inf",
+    "Windows\\INF\\vcom\\lpc-ucom-vcom.inf"
+  ],
+  "firmware": {
+    "patterns": [
+      "*.bin"
+    ],
+    "optional": [
+      "table_after_update.csv"
+    ]
+  }
+}

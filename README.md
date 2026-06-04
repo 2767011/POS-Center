@@ -9,8 +9,10 @@
 | Файл | Назначение |
 |------|------------|
 | `run.bat` | Интерактивное меню для локального запуска диагностики, дампа, прошивки и проверки COM-драйвера |
-| `auto_update.bat` | Полный удалённый цикл обновления: скачивание файлов, проверка окружения, драйверы, прошивка |
-| `download.ps1` | Скачивание updater-скриптов, прошивок и пакета `VCOM+DFU.zip` с внутреннего веб-сервера |
+| `auto_update.bat` | Полный удалённый цикл обновления: подготовка файлов из выбранного источника, проверка окружения, драйверы, прошивка |
+| `prepare_update.ps1` | Универсальная подготовка updater-файлов из HTTP, локальной папки, SMB-шары или offline-пакета |
+| `download.ps1` | Совместимая обёртка над `prepare_update.ps1` для старых сценариев запуска |
+| `manifest.json` | Список обязательных и опциональных файлов пакета обновления |
 | `install_python.ps1` | Установка portable Python с `pywin32`; Windows 7 получает отдельный пакет Python 3.8 |
 | `install_dfu_driver.bat` | Добавление подписантов `.cat` в `TrustedPublisher` и установка USB VCOM/DFU-драйверов через `pnputil` |
 | `register_drvfr.bat` | Регистрация COM-драйвера `DrvFR.dll` подходящей разрядности |
@@ -45,7 +47,7 @@ run_update.bat
 Удалённый автоматический запуск через PsExec:
 
 ```bat
-PsExec \\KASSA -s -c auto_update.bat
+PsExec \\KASSA -s -c auto_update.bat --source \\SERVER\Share\KKT
 ```
 
 Перед запуском проверьте `config.bat`: там задаются IP/порт ККТ и путь к прошивкам по умолчанию.
@@ -54,7 +56,7 @@ PsExec \\KASSA -s -c auto_update.bat
 
 `auto_update.bat` выполняет шаги в таком порядке:
 
-1. Скачивает актуальные скрипты, прошивки и `VCOM+DFU.zip`.
+1. Готовит актуальные скрипты, прошивки и `VCOM+DFU.zip` из выбранного источника.
 2. Проверяет или устанавливает portable Python.
 3. Проверяет `pywin32`.
 4. Проверяет или регистрирует COM-драйвер `AddIn.DrvFR`.
@@ -63,6 +65,18 @@ PsExec \\KASSA -s -c auto_update.bat
 7. Запускает `kkt_firmware_update.py --force`.
 
 Ошибка установки USB VCOM/DFU-драйверов не останавливает прошивку. Она пишется в `dfu_driver_install.log`, а в конце вывода показывается крупное предупреждение.
+
+Источник файлов задаётся параметром `--source` или переменной окружения `KKT_SOURCE`.
+
+Поддерживаемые варианты:
+
+```bat
+auto_update.bat --source http://files.example.local/KKT
+auto_update.bat --source C:\KKT-offline
+auto_update.bat --source \\SERVER\Share\KKT
+```
+
+`--source` может указывать как на корень пакета с папками `Updater` и `FW_FR`, так и прямо на папку `Updater`. Если параметр не задан, скрипт пробует использовать папку, из которой запущен `auto_update.bat`.
 
 ## Прошивка ККТ
 
@@ -99,9 +113,52 @@ python kkt_firmware_update.py --ip 192.168.137.111 --port 7778 --file firmware -
 install_dfu_driver.bat VCOM+DFU
 ```
 
-## Структура веб-сервера
+## Универсальный пакет
 
-Веб-сервер используется как файловый источник для удалённого автообновления. Публичный корень Apache настроен на каталог с файлами, а `download.ps1` забирает updater-скрипты из раздела `KKT/Updater` и прошивки из `KKT/FW_FR`.
+Одна и та же раскладка подходит для HTTP-сервера, SMB-шары, локальной папки и USB/offline-пакета:
+
+```text
+KKT/
+├── Updater/
+│   ├── auto_update.bat
+│   ├── prepare_update.ps1
+│   ├── download.ps1
+│   ├── manifest.json
+│   ├── install_python.ps1
+│   ├── install_dfu_driver.bat
+│   ├── register_drvfr.bat
+│   ├── setup.bat
+│   ├── run.bat
+│   ├── run_update.bat
+│   ├── config.bat
+│   ├── kkt_driver.py
+│   ├── kkt_firmware_update.py
+│   ├── kkt_dump_tables.py
+│   ├── kkt_info.py
+│   ├── probe_com.py
+│   ├── python_ready.zip
+│   ├── python_ready_win7.zip
+│   └── VCOM+DFU.zip
+└── FW_FR/
+    ├── *.bin
+    └── table_after_update.csv
+```
+
+Для offline-запуска распакуйте такую структуру на USB-диск или в локальную папку и запустите:
+
+```bat
+auto_update.bat --source X:\KKT
+```
+
+Для сетевой папки используйте UNC-путь:
+
+```bat
+auto_update.bat --source \\SERVER\Share\KKT
+```
+
+## HTTP-источник
+
+Веб-сервер теперь является только одним из вариантов источника. Публичный корень может содержать ту же структуру `KKT/Updater` и `KKT/FW_FR`, а `prepare_update.ps1` заберёт файлы по HTTP.
 
 Ожидаемая структура публичного каталога:
 
@@ -110,7 +167,9 @@ install_dfu_driver.bat VCOM+DFU
 ├── KKT/
 │   ├── Updater/
 │   │   ├── auto_update.bat
+│   │   ├── prepare_update.ps1
 │   │   ├── download.ps1
+│   │   ├── manifest.json
 │   │   ├── install_python.ps1
 │   │   ├── install_dfu_driver.bat
 │   │   ├── register_drvfr.bat
@@ -123,6 +182,8 @@ install_dfu_driver.bat VCOM+DFU
 │   │   ├── kkt_dump_tables.py
 │   │   ├── kkt_info.py
 │   │   ├── probe_com.py
+│   │   ├── python_ready.zip
+│   │   ├── python_ready_win7.zip
 │   │   └── VCOM+DFU.zip
 │   └── FW_FR/
 │       ├── *.bin

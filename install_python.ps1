@@ -1,11 +1,56 @@
-# install_python.ps1 - Установка Portable Python из готового пакета с локального сервера
+# install_python.ps1 - Установка Portable Python из готового пакета
 # Пакет python_ready.zip готовится скриптом build_python_package.ps1 и содержит
 # Python + pip + pywin32 в одном архиве. Это исключает скачивание из интернета
 # и зависание pip при запуске через PsExec.
 
+param(
+    [string]$PackageSource = '',
+    [string]$BaseUrl = ''
+)
+
 $ErrorActionPreference = "Stop"
 
 $extractPath = "python"
+
+if (-not $PackageSource -and $env:KKT_PACKAGE_SOURCE) {
+    $PackageSource = $env:KKT_PACKAGE_SOURCE
+}
+
+if (-not $BaseUrl -and $env:KKT_BASE_URL) {
+    $BaseUrl = $env:KKT_BASE_URL
+}
+
+if (-not $BaseUrl -and $env:KKT_SOURCE -and $env:KKT_SOURCE -match '^https?://') {
+    $BaseUrl = $env:KKT_SOURCE
+}
+
+function Test-IsHttpSource {
+    param([string]$Value)
+    return ($Value -match '^https?://')
+}
+
+function Join-Url {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Base,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Child
+    )
+
+    return $Base.TrimEnd('/') + '/' + $Child.TrimStart('/')
+}
+
+function Get-UpdaterUrl {
+    param([string]$SourceUrl)
+
+    if (-not $SourceUrl) { return '' }
+    $sourceRoot = $SourceUrl.TrimEnd('/')
+    if ($sourceRoot -match '/Updater/?$') {
+        return $sourceRoot
+    }
+    return (Join-Url $sourceRoot 'Updater')
+}
 
 function Get-WindowsVersionCompat {
     try {
@@ -18,7 +63,7 @@ function Get-WindowsVersionCompat {
 
 $windowsVersion = Get-WindowsVersionCompat
 $isWindows7 = ($windowsVersion.Major -eq 6 -and $windowsVersion.Minor -eq 1)
-$baseUrl = "http://192.168.20.229/KKT/Updater"
+$updaterUrl = Get-UpdaterUrl -SourceUrl $BaseUrl
 
 if ($isWindows7) {
     # Python 3.8 is the last Python line suitable for Windows 7.
@@ -33,9 +78,10 @@ if ($isWindows7) {
     $getPipUrl = "https://bootstrap.pypa.io/get-pip.py"
 }
 
-# URL готового пакета на локальном сервере
-# Пакет собирается скриптом build_python_package.ps1
-$readyUrl = "$baseUrl/$readyPackage"
+$readyUrl = ''
+if ($updaterUrl) {
+    $readyUrl = Join-Url $updaterUrl $readyPackage
+}
 $zipPath = $readyPackage
 
 # Fallback: скачать embed-дистрибутив и поставить pip/pywin32 вручную
@@ -166,23 +212,60 @@ if (Test-Path "$extractPath\python.exe") {
     Remove-Item $extractPath -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# 2. Попытка скачать готовый пакет с локального сервера
-Write-Host "Downloading pre-built Python package from $readyUrl..."
+# 2. Попытка взять готовый пакет из подготовленной папки или явно заданного HTTP-источника
 $downloaded = $false
-try {
-    Download-FileCompat -Uri $readyUrl -OutFile $zipPath -TimeoutSec 30
-    if (Test-Path $zipPath) {
-        $fileSize = (Get-Item $zipPath).Length
-        if ($fileSize -gt 1048576) {  # > 1MB - валидный архив
+$scriptDir = ''
+if ($MyInvocation.MyCommand.Path) {
+    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+
+$packageCandidates = @()
+if ($PackageSource -and -not (Test-IsHttpSource $PackageSource)) {
+    $packageCandidates += (Join-Path $PackageSource $readyPackage)
+}
+$packageCandidates += (Join-Path (Get-Location).Path $readyPackage)
+if ($scriptDir) {
+    $packageCandidates += (Join-Path $scriptDir $readyPackage)
+}
+
+foreach ($candidate in ($packageCandidates | Select-Object -Unique)) {
+    if (-not $candidate) { continue }
+    if (Test-Path -LiteralPath $candidate) {
+        $fileSize = (Get-Item -LiteralPath $candidate).Length
+        if ($fileSize -gt 1048576) {
+            if ((Resolve-Path -LiteralPath $candidate).Path -ne (Join-Path (Get-Location).Path $zipPath)) {
+                Copy-Item -LiteralPath $candidate -Destination $zipPath -Force
+            }
             $downloaded = $true
+            Write-Host "Using local pre-built Python package: $candidate"
             Write-Host "  OK: $([math]::Round($fileSize/1MB, 1)) MB"
-        } else {
-            Write-Host "  Downloaded file too small ($fileSize bytes), trying fallback..."
-            Remove-Item $zipPath -Force
+            break
         }
     }
-} catch {
-    Write-Host "  [WARN] Cannot download from local server: $($_.Exception.Message)"
+}
+
+if (-not $downloaded -and $readyUrl) {
+    Write-Host "Downloading pre-built Python package from $readyUrl..."
+    try {
+        Download-FileCompat -Uri $readyUrl -OutFile $zipPath -TimeoutSec 30
+        if (Test-Path $zipPath) {
+            $fileSize = (Get-Item $zipPath).Length
+            if ($fileSize -gt 1048576) {
+                $downloaded = $true
+                Write-Host "  OK: $([math]::Round($fileSize/1MB, 1)) MB"
+            } else {
+                Write-Host "  Downloaded file too small ($fileSize bytes), trying fallback..."
+                Remove-Item $zipPath -Force
+            }
+        }
+    } catch {
+        Write-Host "  [WARN] Cannot download pre-built package: $($_.Exception.Message)"
+        Write-Host "  Falling back to internet install..."
+    }
+}
+
+if (-not $downloaded -and -not $readyUrl) {
+    Write-Host "  [WARN] Pre-built Python package was not found locally."
     Write-Host "  Falling back to internet install..."
 }
 

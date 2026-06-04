@@ -1,9 +1,9 @@
 # build_python_package.ps1 - Сборка готового python_ready.zip для деплоя на кассы
 #
 # Запускать на машине с интернетом. Один раз при обновлении версии.
-# Результаты положить на сервер:
-#   http://192.168.20.229/KKT/Updater/python_ready.zip
-#   http://192.168.20.229/KKT/Updater/python_ready_win7.zip
+# Результаты положить в папку Updater выбранного HTTP, SMB или offline-пакета:
+#   python_ready.zip
+#   python_ready_win7.zip
 #
 # Использование:
 #   pwsh -NoProfile -File build_python_package.ps1
@@ -102,4 +102,4 @@ Write-Host "=== Done! ===" -ForegroundColor Green
 Write-Host "File: $OutputPath ($zipSize MB)"
 Write-Host ""
 Write-Host "Deploy:" -ForegroundColor Yellow
-Write-Host "  Copy $OutputPath to server: http://192.168.20.229/KKT/Updater/$(Split-Path $OutputPath -Leaf)"
+Write-Host "  Copy $OutputPath to the Updater folder of your HTTP, SMB, or offline package."
