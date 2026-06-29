@@ -254,6 +254,20 @@ echo       OK
 echo:
 
 :: ========================================
+:: Close 1C clients (they hold the KKT / COM port)
+:: ========================================
+echo [*] Closing 1C clients that may hold the KKT...
+for %%P in (1cv8.exe 1cv8c.exe) do (
+    tasklist /FI "IMAGENAME eq %%P" 2>nul | find /I "%%P" >nul
+    if !ERRORLEVEL! EQU 0 (
+        echo       Stopping %%P ...
+        taskkill /F /T /IM %%P >nul 2>&1
+    )
+)
+echo       OK
+echo:
+
+:: ========================================
 :: Run update
 :: ========================================
 echo ========================================
