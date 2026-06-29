@@ -152,7 +152,7 @@ auto_update.bat
 - URL: `http://192.168.20.229/admin`
 - Прямой скрипт: `http://192.168.20.229/admin.php`
 - Файл на сервере: `/var/www/files/admin.php`
-- Пароль: `REDACTED`
+- Пароль: см. локальный файл `server_snapshot/192.168.20.229/.secrets.local.md` (в .gitignore)
 - Детальный снимок сервера: `server_snapshot/192.168.20.229/README.md`
 
 ### Загрузка файлов на сервер

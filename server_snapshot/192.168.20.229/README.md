@@ -6,11 +6,11 @@
 
 - SSH: `ssh root@192.168.20.229`
 - SSH user: `root`
-- SSH password: `REDACTED`
+- SSH password: см. `.secrets.local.md` (рядом, в .gitignore)
 - Public page: `http://192.168.20.229/`
 - Admin page: `http://192.168.20.229/admin`
 - Admin direct script: `http://192.168.20.229/admin.php`
-- Admin password: `REDACTED`
+- Admin password: см. `.secrets.local.md` (рядом, в .gitignore)
 
 ## Что крутится
 

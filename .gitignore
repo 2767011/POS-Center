@@ -1,2 +1,6 @@
 TSPIoT/
 .agents/
+
+# Local-only secrets, never commit
+**/.secrets.local.md
+**/*.secrets.local*

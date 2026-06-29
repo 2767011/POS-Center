@@ -42,7 +42,7 @@ $server_tz = date_default_timezone_get();
 
 // Initialize password file if not exists
 if (!file_exists($PASSWORD_FILE)) {
-    file_put_contents($PASSWORD_FILE, password_hash('REDACTED', PASSWORD_DEFAULT));
+    file_put_contents($PASSWORD_FILE, password_hash('CHANGE_ME', PASSWORD_DEFAULT));
     chmod($PASSWORD_FILE, 0600);
     chown($PASSWORD_FILE, 'www-data');
 }
